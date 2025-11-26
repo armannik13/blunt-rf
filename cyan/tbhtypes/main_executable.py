@@ -68,6 +68,26 @@ class MainExecutable(Executable):
         existed = tbhutils.delete_if_exists(fpath, bn)
         shutil.copytree(path, fpath)
         location = "PlugIns/"
+      elif bn == "SwiftgramCrack.dylib":
+        # special case for swiftgram crack
+        path = shutil.copy2(path, tmpdir)
+
+        e = Executable(path)
+        e.fix_common_dependencies(needed)
+        e.fix_dependencies(tweaks, inject_to_path)
+
+        if inject_to_path:
+          fpath = f"{self.bundle_path}/{bn}"
+          existed = tbhutils.delete_if_exists(fpath, bn)
+          self.inj_func(f"@executable_path/{bn}", f"{FRAMEWORKS_DIR}/TelegramUIFramework.framework/TelegramUIFramework")
+          shutil.copy2(path, self.bundle_path)
+          location = "@executable_path/"
+        else:
+          fpath = f"{FRAMEWORKS_DIR}/{bn}"
+          existed = tbhutils.delete_if_exists(fpath, bn)
+          self.inj_func(f"@rpath/{bn}", f"{FRAMEWORKS_DIR}/TelegramUIFramework.framework/TelegramUIFramework")
+          shutil.move(path, FRAMEWORKS_DIR)
+          location = "Frameworks/"
       elif bn.endswith(".dylib"):
         path = shutil.copy2(path, tmpdir)
 
@@ -165,28 +185,34 @@ class MainExecutable(Executable):
       self.path
     ]).returncode == 0
 
-  def lief_inject(self, cmd: str) -> None:
+  def lief_inject(self, cmd: str, target: Optional[str] = None) -> None:
+    if target is None:
+      target = self.path
+
     if self.inj is None:  # type: ignore
       try:
         lief.logging.disable()  # type: ignore
       except Exception:
         sys.exit("[!] did you forget to install lief?")
 
-      self.inj = lief.parse(self.path)  # type: ignore
+      self.inj = lief.parse(target)  # type: ignore
 
     try:
       self.inj.add(lief.MachO.DylibCommand.weak_lib(cmd))  # type: ignore
     except AttributeError:
       sys.exit("[!] couldn't add LC (lief), did you use a valid app?")
 
-  def idyl_inject(self, cmd: str) -> None:
+  def idyl_inject(self, cmd: str, target: Optional[str] = None) -> None:
+    if target is None:
+      target = self.path
+
     proc = subprocess.run(
       [
         self.idylib, "--weak", "--inplace", "--all-yes",
-        cmd, self.path
+        cmd, target
       ], capture_output=True, text=True
     )
 
     if proc.returncode != 0:
       sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
-
+      
