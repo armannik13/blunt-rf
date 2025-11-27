@@ -83,6 +83,10 @@ def main() -> None:
     "-p", "--inject-to-path", action="store_true",
     help="inject dylibs into @executable_path instead of @executable_path/Frameworks"
   )
+  parser.add_argument(
+    "-z", "--custom-path", action="store_true",
+    help="use custom tweaks path"
+  )
 
   generate_cyan(parser)
 
@@ -161,4 +165,3 @@ def generate_cyan(parser: argparse.ArgumentParser) -> None:
 
 if __name__ == "__main__":
   main()
-
