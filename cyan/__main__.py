@@ -92,6 +92,10 @@ def main() -> None:
     "-p", "--inject-to-path", action="store_true",
     help="inject dylibs into @executable_path instead of @executable_path/Frameworks"
   )
+  parser.add_argument(
+    "-z", "--custom-path", action="store_true",
+    help="use custom tweaks path"
+  )
 
   parser.add_argument(
     "-c", "--compress", metavar="level", type=int, default=6,
@@ -117,4 +121,3 @@ def main() -> None:
 
 if __name__ == "__main__":
   main()
-
