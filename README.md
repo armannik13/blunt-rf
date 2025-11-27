@@ -47,7 +47,7 @@ the `zip` and `unzip` commands are *optional* dependencies, they may [fix issues
 <summary><b>jailbroken iOS instructions / automated environment (github workflow, etc)</b></summary>
 <br/>
 <ol>
-  <li>install OR update cyan: <code>pip install --force-reinstall https://github.com/b1atant/blunt-rw/archive/main.zip</code></li>
+  <li>install OR update cyan: <code>pip install --force-reinstall https://github.com/armannik13/blunt-rw/archive/main.zip</code></li>
 </ol>
 </details>
 
