@@ -67,7 +67,8 @@ class MainExecutable(Executable):
     for bn, path in tweaks.items():
       if os.path.islink(path):
         continue  # symlinks can potentially have some security implications
-
+        
+      target_path = None
       if bn.endswith(".appex"):
         fpath = f"{PLUGINS_DIR}/{bn}"
         existed = tbhutils.delete_if_exists(fpath, bn)
