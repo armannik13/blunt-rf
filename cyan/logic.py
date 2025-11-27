@@ -55,7 +55,7 @@ def main(parser: ArgumentParser) -> None:
       app.remove_encrypted_extensions()
 
     if args.f is not None:
-      app.executable.inject(args.f, tmpdir, args.inject_to_path)
+      app.executable.inject(args.f, tmpdir, args.inject_to_path, args.z)
     if args.n is not None:
       app.plist.change_name(args.n)
     if args.v is not None:
@@ -97,4 +97,3 @@ def main(parser: ArgumentParser) -> None:
 
       shutil.move(app.path, args.o)
       print(f"[*] generated app at {args.o}")
-
