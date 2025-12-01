@@ -84,8 +84,12 @@ def main() -> None:
     help="inject dylibs into @executable_path instead of @executable_path/Frameworks"
   )
   parser.add_argument(
-    "-j", "--custom-path", action="store_true",
+    "-z", "--custom-path", action="store_true",
     help="use custom tweaks path"
+  )
+  parser.add_argument(
+    "-r", "--patch-plugins", action="store_true",
+    help="patch plugins"
   )
 
   generate_cyan(parser)
