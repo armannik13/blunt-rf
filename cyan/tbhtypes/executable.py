@@ -137,4 +137,14 @@ class Executable:
         deps.append(dep.split()[0])  # split() removes whitespace
 
     return deps
+  
+  def is_dylib_already_injected(self, binary_path: str, dylib_name: str = "zxPluginsInject.dylib") -> bool:
+    try:
+        result = subprocess.run(
+            [self.otool, "-L", binary_path],
+            capture_output=True, text=True, check=True
+        )
+        return dylib_name in result.stdout
+    except:
+        return False
 
