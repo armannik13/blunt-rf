@@ -77,6 +77,8 @@ def main(parser: ArgumentParser) -> None:
       app.remove_watch_apps()
     if args.enable_documents:
       app.plist.enable_documents()
+    if args.patch_plugins:
+      app.executable.patch_plugins(tmpdir)
     if args.fakesign:
       app.fakesign_all()
     if args.thin:
