@@ -96,6 +96,10 @@ def main() -> None:
     "-j", "--custom-path", action="store_true",
     help="use custom tweaks path"
   )
+  parser.add_argument(
+    "-r", "--patch-plugins", action="store_true",
+    help="patch plugins"
+  )
 
   parser.add_argument(
     "-c", "--compress", metavar="level", type=int, default=6,
