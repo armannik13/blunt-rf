@@ -61,20 +61,18 @@ def validate_inputs(args: Namespace) -> Optional[str]:
   if args.patch_plugins is not None:
     neww: list[str] = []
     if isinstance(args.patch_plugins, str):
-      args_patch_list = [args.patch_plugins]
-    else:
-      args_patch_list = []
+      for dylib in [args.patch_plugins]:
+        if dylib[-1] == "/":  # yeah this is stupid
+          dylib = dylib[:-1]
 
-    for dylib in args_patch_list:
-      if dylib[-1] == "/":  # yeah this is stupid
-        dylib = dylib[:-1]
+        if not os.path.isfile(dylib):
+          sys.exit(f"[!] {dylib} does not exist")
 
-      if not os.path.isfile(dylib):
-        sys.exit(f"[!] {dylib} does not exist")
+        neww.append(os.path.realpath(dylib))
 
-      neww.append(os.path.realpath(dylib))
-
-    args.patch_plugins = neww
+      args.patch_plugins = neww
+    elif args.patch_plugins is True:
+      args.patch_plugins = True
 
   if (
       args.m is not None
