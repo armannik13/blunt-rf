@@ -227,7 +227,7 @@ class MainExecutable(Executable):
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
     if isinstance(dylib, str):
-      dylib_source = dylib if dylib.endswith(".dylib") else f"{dylib}.dylib"
+      dylib_source = dylib
     else:
       dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
     dylib_name = os.path.basename(dylib_source)
