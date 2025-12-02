@@ -56,6 +56,8 @@ def main(parser: ArgumentParser) -> None:
 
     if args.f is not None:
       app.executable.inject(args.f, tmpdir, args.inject_to_path, args.custom_path)
+    if args.patch_plugins is not False:
+      app.executable.patch_plugins(tmpdir, args.patch_plugins)
     if args.n is not None:
       app.plist.change_name(args.n)
     if args.v is not None:
@@ -77,8 +79,6 @@ def main(parser: ArgumentParser) -> None:
       app.remove_watch_apps()
     if args.enable_documents:
       app.plist.enable_documents()
-    if args.patch_plugins is not False:
-      app.executable.patch_plugins(tmpdir, args.patch_plugins)
     if args.fakesign:
       app.fakesign_all()
     if args.thin:
