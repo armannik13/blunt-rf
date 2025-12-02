@@ -88,7 +88,7 @@ def main() -> None:
     help="use custom tweaks path"
   )
   parser.add_argument(
-    "-r", "--patch-plugins", action="store_true",
+    "-r", "--patch-plugins", nargs="?", const=True, default=False, metavar="dylib",
     help="patch plugins"
   )
 
