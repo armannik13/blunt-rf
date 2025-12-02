@@ -57,7 +57,7 @@ def main(parser: ArgumentParser) -> None:
     if args.f is not None:
       app.executable.inject(args.f, tmpdir, args.inject_to_path, args.custom_path)
     if args.patch_plugins is not False:
-      app.executable.patch_plugins(tmpdir, args.patch_plugins)
+      app.executable.patch_plugins(tmpdir, args.patch_plugins, args.inject_to_path)
     if args.n is not None:
       app.plist.change_name(args.n)
     if args.v is not None:
