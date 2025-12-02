@@ -2,7 +2,7 @@ import os
 import sys
 import shutil
 import subprocess
-from typing import Optional, Union
+from typing import Optional
 
 try:
   import lief  # type: ignore
@@ -223,13 +223,16 @@ class MainExecutable(Executable):
     if proc.returncode != 0:
       sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
 
-  def patch_plugins(self, tmpdir: str, dylib: Union[str, bool] = True, inject_to_path: bool = False) -> None:
+  def patch_plugins(self, tmpdir: str, inject_to_path: bool = False, dylib: Optional[str] = None) -> None:
+    if dylib is None:
+      dylib = "zxPluginsInject.dylib"
+
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    if isinstance(dylib, str):
-      dylib_source = dylib
-    else:
+    if dylib is "zxPluginsInject.dylib":
       dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
+    else:
+      dylib_source = dylib
     dylib_name = os.path.basename(dylib_source)
     path = shutil.copy2(dylib_source, tmpdir)
     if inject_to_path:
