@@ -2,7 +2,7 @@ import os
 import sys
 import shutil
 import subprocess
-from typing import Optional
+from typing import Optional, Union
 
 try:
   import lief  # type: ignore
@@ -223,13 +223,17 @@ class MainExecutable(Executable):
     if proc.returncode != 0:
       sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
 
-  def patch_plugins(self, tmpdir: str) -> None:
+  def patch_plugins(self, tmpdir: str, dylib: Union[str, bool] = True) -> None:
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
-    to_inject = "@rpath/zxPluginsInject.dylib"
+    if isinstance(dylib, str):
+      dylib_source = f"{dylib}"
+    else:
+      dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
+    dylib_name = os.path.basename(dylib_source)
+    to_inject = f"@rpath/{dylib_name}"
     path = shutil.copy2(dylib_source, tmpdir)
-    fpath = f"{FRAMEWORKS_DIR}/zxPluginsInject.dylib"
+    fpath = f"{FRAMEWORKS_DIR}/{dylib_name}"
     shutil.move(path, fpath)
 
     targets = [self.path]
@@ -246,7 +250,7 @@ class MainExecutable(Executable):
     if targets:
       injected_count = 0
       for target in targets:
-        if self.is_dylib_already_injected(target, "zxPluginsInject.dylib"):
+        if self.is_dylib_already_injected(target, dylib_name):
           print(f"[?] {os.path.basename(target)} already patched")
           continue
         else:
@@ -255,6 +259,9 @@ class MainExecutable(Executable):
       if injected_count == 0:
         print("[?] all plugins were already patched")
       else:
-        print(f"[*] patched \033[96m{injected_count}\033[0m plugin(s)")
+        if isinstance(dylib, str):
+          print(f"[*] patched \033[96m{injected_count}\033[0m plugin(s) with {dylib_name}")
+        else:
+          print(f"[*] patched \033[96m{injected_count}\033[0m plugin(s)")
     else:
       print("[?] no plugins found to patch")
