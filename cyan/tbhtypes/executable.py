@@ -1,7 +1,7 @@
 import os
 import sys
 import subprocess
-
+from typing import Optional
 from cyan import tbhutils
 
 
@@ -76,9 +76,11 @@ class Executable:
       stderr=subprocess.DEVNULL
     ).returncode == 0
 
-  def change_dependency(self, old: str, new: str) -> None:
+  def change_dependency(self, old: str, new: str, target: Optional[str] = None) -> None:
+    if target is None:
+      target = self.path
     subprocess.run(
-      [self.nt, "-change", old, new, self.path],
+      [self.nt, "-change", old, new, target],
       stderr=subprocess.DEVNULL
     )
 
