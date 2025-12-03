@@ -273,6 +273,10 @@ def parse_cyans(args: dict[str, Any], tmpdir: str) -> None:
         args["x"] = zf.extract("new.entitlements", DOT_PATH)
         del config["x"]
       if "custom_dylib" in config:
+        NAME = [n for n in zf.namelist() if n.startswith("custom_dylib/")]
+        zf.extractall(DOT_PATH, NAME)
+        
+        args["custom_dylib"] = args["custom_dylib"] if args["custom_dylib"] is not None else {}
         for e in os.scandir(f"{DOT_PATH}/custom_dylib"):
           args["custom_dylib"] = zf.extract(e.name, DOT_PATH)
         del config["custom_dylib"]
