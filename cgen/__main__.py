@@ -133,7 +133,7 @@ def generate_cyan(parser: argparse.ArgumentParser) -> None:
   real_args = {k: v for k, v in dict(vars(args)).items() if v}
   del real_args["output"]
 
-  for key in "fkxl":  # these need files
+  for key in ("f", "k", "x", "l", "custom_dylib"):  # these need files
     if key in real_args:
       real_args[key] = True
 
