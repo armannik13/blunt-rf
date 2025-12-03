@@ -278,7 +278,7 @@ def parse_cyans(args: dict[str, Any], tmpdir: str) -> None:
         
         args["custom_dylib"] = args["custom_dylib"] if args["custom_dylib"] is not None else {}
         for e in os.scandir(f"{DOT_PATH}/custom_dylib"):
-          args["custom_dylib"] = zf.extract(e.path, DOT_PATH)
+          args["custom_dylib"] = zf.extract(f"custom_dylib/{e.name}", DOT_PATH)
         del config["custom_dylib"]
 
       # the rest of the config (not the ones above, we `del` them)
