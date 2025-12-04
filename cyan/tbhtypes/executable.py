@@ -149,30 +149,3 @@ class Executable:
       return dylib_name in result.stdout
     except:
       return False
-  
-  def is_plugin_already_patched(self, binary_path: str) -> str | None:
-    try:
-      result = subprocess.run(
-        [self.otool, "-L", binary_path],
-        capture_output=True,
-        text=True,
-        check=True
-      )
-      matches: list[str] = []
-      for line in result.stdout.splitlines():
-        if not line.strip():
-          continue
-                  
-        parts = line.split()
-        if not parts:
-          continue
-              
-        dylib_path = parts[0]
-        if ("@rpath" in dylib_path or "@executable_path" in dylib_path) and ".dylib" in dylib_path:
-          clean_path = dylib_path.split('(')[0].strip()
-          matches.append(clean_path)
-      if matches:
-        return matches[-1]
-      return None 
-    except Exception:
-      return None
