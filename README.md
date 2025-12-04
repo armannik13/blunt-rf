@@ -37,7 +37,7 @@ the `zip` and `unzip` commands are *optional* dependencies, they may [fix issues
 <br/>
 <ol>
   <li>install <a href="https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx">pipx</a></li>
-  <li>install OR update cyan: <code>pipx install --force https://github.com/armannik13/blunt-rw/archive/main.zip</code></li>
+  <li>install OR update cyan: <code>pipx install --force https://github.com/armannik13/blunt-rf/archive/main.zip</code></li>
   <li><b>if you want to inject dylibs ON AARCH64 LINUX</b>: <code>pipx inject cyan lief</code></li>
   <li><b>if you want to change app icons (iOS NOT supported)</b>: <code>pipx inject cyan Pillow</code></li>
 </ol>
@@ -47,7 +47,7 @@ the `zip` and `unzip` commands are *optional* dependencies, they may [fix issues
 <summary><b>jailbroken iOS instructions / automated environment (github workflow, etc)</b></summary>
 <br/>
 <ol>
-  <li>install OR update cyan: <code>pip install --force-reinstall https://github.com/armannik13/blunt-rw/archive/main.zip</code></li>
+  <li>install OR update cyan: <code>pip install --force-reinstall https://github.com/armannik13/blunt-rf/archive/main.zip</code></li>
 </ol>
 </details>
 
