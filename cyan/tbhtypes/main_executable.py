@@ -229,7 +229,7 @@ class MainExecutable(Executable):
 
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    if dylib is "zxPluginsInject.dylib":
+    if dylib == "zxPluginsInject.dylib":
       dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
     else:
       dylib_source = dylib
@@ -246,24 +246,38 @@ class MainExecutable(Executable):
     shutil.move(path, fpath)
 
     targets = [self.path]
-
+    found_plugins: set[str] = set()
     for item in os.listdir(PLUGINS_DIR):
       if item.endswith(".appex"):
         binary_path = os.path.join(PLUGINS_DIR, item, item[:-6])
         if os.path.isfile(binary_path):
+          plugins = self.is_plugin_already_patched(binary_path)
+          if plugins:
+            found_plugins.add(plugins)
           targets.append(binary_path)
-
+          
     count = 0
     for target in targets:
-      if self.is_dylib_already_injected(target, old_location):
-        self.change_dependency(old_location, location, target)
-        count += 1
-      elif not self.is_dylib_already_injected(target, location):
-        self.inj_func(location, target)
-        count += 1
-      else:
-        print(f"[?] {os.path.basename(target)} already patched")
-        continue
+      patched_in_this_target = False
+      for plugin in found_plugins:
+        if self.is_dylib_already_injected(target, plugin):
+          patched_in_this_target = True
+          if not self.is_dylib_already_injected(target, location):
+            self.change_dependency(plugin, location, target)
+            count += 1
+          else:
+            print(f"[?] {os.path.basename(target)} already patched")
+            continue
+      if not patched_in_this_target:
+        if self.is_dylib_already_injected(target, old_location):
+          self.change_dependency(old_location, location, target)
+          count += 1
+        elif not self.is_dylib_already_injected(target, location):
+          self.inj_func(location, target)
+          count += 1
+        else:
+          print(f"[?] {os.path.basename(target)} already patched")
+          continue
     if count == 0:
       print("[?] all items already patched")
     else:
