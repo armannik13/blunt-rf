@@ -84,20 +84,21 @@ class Executable:
       stderr=subprocess.DEVNULL
     )
 
-  def fix_common_dependencies(self, needed: set[str]) -> None:
+  def fix_common_dependencies(self, needed: set[str], no_defualt_dependencies: bool = False) -> None:
     self.remove_signature()
+  
+    if not no_defualt_dependencies:
+      for dep in self.get_dependencies():
+        for common, info in self.common.items():
+          if common in dep.lower():
+            needed.add(common)
 
-    for dep in self.get_dependencies():
-      for common, info in self.common.items():
-        if common in dep.lower():
-          needed.add(common)
-
-          if dep != info["path"]:
-            self.change_dependency(dep, info["path"])
-            print(
-              f"[*] fixed common dependency in {self.bn}: "
-              f"{dep} -> {info['path']}"
-            )
+            if dep != info["path"]:
+              self.change_dependency(dep, info["path"])
+              print(
+                f"[*] fixed common dependency in {self.bn}: "
+                f"{dep} -> {info['path']}"
+              )
 
   def fix_dependencies(self, tweaks: dict[str, str], inject_to_path: bool = False) -> None:
     for dep in self.get_dependencies():
