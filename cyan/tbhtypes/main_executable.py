@@ -24,7 +24,7 @@ class MainExecutable(Executable):
     else:
       self.inj_func = self.lief_inject
 
-  def inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False) -> None:
+  def inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_defualt_dependencies: bool = False) -> None:
     ENT_PATH = f"{self.bundle_path}/cyan.entitlements"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
@@ -83,7 +83,7 @@ class MainExecutable(Executable):
         path = shutil.copy2(path, tmpdir)
 
         e = Executable(path)
-        e.fix_common_dependencies(needed)
+        e.fix_common_dependencies(needed, no_defualt_dependencies)
         e.fix_dependencies(tweaks, inject_to_path)
 
         if inject_to_path:
@@ -229,7 +229,7 @@ class MainExecutable(Executable):
 
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    if dylib is "zxPluginsInject.dylib":
+    if dylib == "zxPluginsInject.dylib":
       dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
     else:
       dylib_source = dylib
