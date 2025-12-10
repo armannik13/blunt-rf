@@ -104,6 +104,10 @@ def main() -> None:
     "--custom-dylib", metavar="custom dylib",
     help="custom dylib to patch plugins"
   )
+  parser.add_argument(
+    "--no-defualt-dependencies", action="store_true",
+    help="stop using default dependencies"
+  ) 
 
   parser.add_argument(
     "-c", "--compress", metavar="level", type=int, default=6,
