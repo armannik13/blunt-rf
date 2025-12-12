@@ -255,7 +255,7 @@ class MainExecutable(Executable):
 
     count = 0
     for target in targets:
-      if self.is_dylib_already_injected(target, old_location):
+      if self.is_dylib_already_injected(target, old_location) and not self.is_dylib_already_injected(target, location):
         self.change_dependency(old_location, location, target)
         count += 1
       elif not self.is_dylib_already_injected(target, location):
