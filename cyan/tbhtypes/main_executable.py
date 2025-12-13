@@ -224,12 +224,9 @@ class MainExecutable(Executable):
       sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
 
   def patch_plugins(self, tmpdir: str, inject_to_path: bool = False, dylib: Optional[str] = None) -> None:
-    if dylib is None:
-      dylib = "zxPluginsInject.dylib"
-
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    if dylib == "zxPluginsInject.dylib":
+    if dylib is None:
       dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
     else:
       dylib_source = dylib
@@ -248,26 +245,42 @@ class MainExecutable(Executable):
     shutil.move(path, fpath)
 
     targets = [self.path]
-
+    found_dylib: Optional[str] = None
+    
     for item in os.listdir(PLUGINS_DIR):
       if item.endswith(".appex"):
         binary_path = os.path.join(PLUGINS_DIR, item, item[:-6])
         if os.path.isfile(binary_path):
           targets.append(binary_path)
+          injected_dylib = self.is_dylib_already_injected(binary_path, old_location)
+          if injected_dylib is not None:
+            found_dylib = injected_dylib   
 
     count = 0
     for target in targets:
-      if self.is_dylib_already_injected(target, old_location) and not self.is_dylib_already_injected(target, location):
-        self.change_dependency(old_location, location, target)
-        if os.path.isfile(old_fpath):
-          os.remove(old_fpath)
-        count += 1
-      elif not self.is_dylib_already_injected(target, location):
-        self.inj_func(location, target)
-        count += 1
+      a = self.is_dylib_already_injected(target, old_location)
+      b = self.is_dylib_already_injected(target, location)
+      if not b:
+        if a:
+          if target is self.path:
+            if found_dylib is not None and a == found_dylib:
+              self.change_dependency(old_location, location, target)
+              count += 1
+              if os.path.isfile(old_fpath):
+                os.remove(old_fpath)
+            else:
+              self.inj_func(location, target)
+              count += 1
+          else:
+            self.change_dependency(old_location, location, target)
+            count += 1
+            if os.path.isfile(old_fpath):
+              os.remove(old_fpath)
+        else:
+          self.inj_func(location, target)
+          count += 1
       else:
         print(f"[?] {os.path.basename(target)} already patched")
-        continue
     if count == 0:
       print("[?] all items already patched")
     else:
