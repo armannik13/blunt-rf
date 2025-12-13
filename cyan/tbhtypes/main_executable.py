@@ -40,7 +40,7 @@ class MainExecutable(Executable):
         t.endswith(k)
         for t in tweaks
         for k in (".deb", ".dylib", ".framework")
-    ):
+    ) and not inject_to_path:
       os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
       # some apps really dont have this lol
       subprocess.run(
@@ -162,6 +162,7 @@ class MainExecutable(Executable):
     # FINALLY !!
     if self.inj is not None:  # type: ignore
       self.inj.write(self.path)  # type: ignore
+      self.inj = None  # type: ignore
 
     if has_entitlements:
       self.sign_with_entitlements(ENT_PATH)
@@ -190,6 +191,14 @@ class MainExecutable(Executable):
       f"-S{entitlements}", "-M", "-Cadhoc",
       f"-Q{self.install_dir}/extras/zero.requirements",
       self.path
+    ]).returncode == 0
+
+  def sign_plugin(self, target: str) -> bool:
+    return subprocess.run([
+      self.ldid,
+      "-Cadhoc", "-s",
+      f"-Q{self.install_dir}/extras/zero.requirements",
+      target
     ]).returncode == 0
 
   def lief_inject(self, cmd: str, target: Optional[str] = None) -> None:
@@ -223,9 +232,17 @@ class MainExecutable(Executable):
     if proc.returncode != 0:
       sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
 
-  def patch_plugins(self, tmpdir: str, inject_to_path: bool = False, dylib: Optional[str] = None) -> None:
+  def patch_plugins(self, tmpdir: str, inject_to_path: bool = False, dylib: Optional[str] = None, arg_f: Optional[dict[str, str]] = None) -> None:
+    arg_f_dict: dict[str, str] = arg_f if arg_f is not None else {}
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
+    if not inject_to_path:
+      os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
+    if arg_f is None and not inject_to_path:
+      subprocess.run(
+        [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
+        stderr=subprocess.DEVNULL
+      )
     if dylib is None:
       dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
     else:
@@ -247,41 +264,38 @@ class MainExecutable(Executable):
     targets = [self.path]
     found_dylib: Optional[str] = None
     
-    for item in os.listdir(PLUGINS_DIR):
-      if item.endswith(".appex"):
-        binary_path = os.path.join(PLUGINS_DIR, item, item[:-6])
-        if os.path.isfile(binary_path):
-          targets.append(binary_path)
-          injected_dylib = self.is_dylib_already_injected(binary_path, old_location)
-          if injected_dylib is not None:
-            found_dylib = injected_dylib   
+    if os.path.isdir(PLUGINS_DIR):
+      for item in os.listdir(PLUGINS_DIR):
+        if item.endswith(".appex"):
+          binary_path = os.path.join(PLUGINS_DIR, item, item[:-6])
+          if os.path.isfile(binary_path):
+            targets.append(binary_path)
+            injected_dylib = self.is_dylib_already_injected(binary_path, old_location)
+            if injected_dylib is not None:
+              found_dylib = injected_dylib
 
     count = 0
     for target in targets:
       a = self.is_dylib_already_injected(target, old_location)
       b = self.is_dylib_already_injected(target, location)
       if not b:
-        if a:
-          if target is self.path:
-            if a == found_dylib:
-              self.change_dependency(old_location, location, target)
-              count += 1
-              if os.path.isfile(old_fpath):
-                os.remove(old_fpath)
-            else:
-              self.inj_func(location, target)
-              count += 1
-          else:
-            self.change_dependency(old_location, location, target)
-            count += 1
-            if os.path.isfile(old_fpath):
-              os.remove(old_fpath)
+        if a and ((target == self.path and a == found_dylib) or (target != self.path)):
+          self.change_dependency(old_location, location, target)
+          count += 1
+          if os.path.isfile(old_fpath):
+            os.remove(old_fpath)
         else:
+          self.remove_signature(target)
           self.inj_func(location, target)
+          if self.inj is not None:  # type: ignore
+            self.inj.write(target)  # type: ignore
+            self.inj = None  # type: ignore
+          self.sign_plugin(target)
           count += 1
       else:
+        if (dylib_name in arg_f_dict and target == self.path):
+          count += 1
+          continue
         print(f"[?] {os.path.basename(target)} already patched")
-    if count == 0:
-      print("[?] all items already patched")
-    else:
+    if count > 0:
       print(f"[*] patched \033[96m{count}\033[0m item(s) with {dylib_name}")
