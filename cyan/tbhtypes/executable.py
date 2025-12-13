@@ -64,8 +64,10 @@ class Executable:
 
     return b"cryptid 1" in proc.stdout
 
-  def remove_signature(self) -> None:
-    subprocess.run([self.ldid, "-R", self.path], stderr=subprocess.DEVNULL)
+  def remove_signature(self, target: Optional[str] = None) -> None:
+    if target is None:
+      target = self.path
+    subprocess.run([self.ldid, "-R", target], stderr=subprocess.DEVNULL)
 
   def fakesign(self) -> bool:
     return subprocess.run([self.ldid, "-S", "-M", self.path]).returncode == 0
