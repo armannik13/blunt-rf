@@ -284,7 +284,7 @@ class MainExecutable(Executable):
       a = self.is_dylib_already_injected(target, old_location)
       b = self.is_dylib_already_injected(target, location)
       if not b:
-        if a and ((target == self.path and a == found_dylib) or (target != self.path)):
+        if a and (target != self.path or a == found_dylib):
           self.remove_signature(target)
           self.change_dependency(old_location, location, target)
           if target != self.path:
