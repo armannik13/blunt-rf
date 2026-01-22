@@ -276,7 +276,7 @@ class MainExecutable(Executable):
           if os.path.isfile(binary_path):
             targets.append(binary_path)
             injected_dylib = self.is_dylib_already_injected(binary_path, old_location)
-            if injected_dylib is not None:
+            if injected_dylib is not None and found_dylib is None:
               found_dylib = injected_dylib
 
     count = 0
