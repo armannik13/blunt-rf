@@ -56,9 +56,11 @@ class Executable:
     self.path = path
     self.bn = os.path.basename(path)
 
-  def is_encrypted(self) -> bool:
+  def is_encrypted(self, target: Optional[str] = None) -> bool:
+    if target is None:
+      target = self.path
     proc = subprocess.run(
-      [self.otool, "-l", self.path],
+      [self.otool, "-l", target],
       capture_output=True
     )
 
@@ -86,8 +88,8 @@ class Executable:
       stderr=subprocess.DEVNULL
     )
 
-  def fix_common_dependencies(self, needed: set[str], no_defualt_dependencies: bool = False) -> None:
-    if not no_defualt_dependencies:
+  def fix_common_dependencies(self, needed: set[str], no_default_dependencies: bool = False) -> None:
+    if not no_default_dependencies:
       self.remove_signature()
   
       for dep in self.get_dependencies():

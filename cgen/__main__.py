@@ -96,8 +96,16 @@ def main() -> None:
     help="custom dylib to patch plugins"
   )
   parser.add_argument(
-    "--no-defualt-dependencies", action="store_true",
+    "--no-default-dependencies", action="store_true",
     help="stop using default dependencies"
+  )
+  parser.add_argument(
+    "-a", "--inject-all", action="store_true",
+    help="inject dylibs into all app extensions (PlugIns and Extensions)"
+  )
+  parser.add_argument(
+    "--ignore-encrypted", action="store_true",
+    help="skip binary encryption check"
   ) 
 
   generate_cyan(parser)
@@ -141,7 +149,7 @@ def generate_cyan(parser: argparse.ArgumentParser) -> None:
   real_args = {k: v for k, v in dict(vars(args)).items() if v}
   del real_args["output"]
 
-  for key in ("f", "k", "x", "l", "custom_dylib", "no_defualt_dependencies"):  # these need files
+  for key in ("f", "k", "x", "l", "custom_dylib"):  # these need files
     if key in real_args:
       real_args[key] = True
 

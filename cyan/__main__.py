@@ -105,9 +105,13 @@ def main() -> None:
     help="custom dylib to patch plugins"
   )
   parser.add_argument(
-    "--no-defualt-dependencies", action="store_true",
+    "--no-default-dependencies", action="store_true",
     help="stop using default dependencies"
-  ) 
+  )
+  parser.add_argument(
+    "-a", "--inject-all", action="store_true",
+    help="inject dylibs into all app extensions (PlugIns and Extensions)"
+  )
 
   parser.add_argument(
     "-c", "--compress", metavar="level", type=int, default=6,
@@ -116,7 +120,7 @@ def main() -> None:
   )
   parser.add_argument(
     "--ignore-encrypted", action="store_true",
-    help="skip main binary encryption check"
+    help="skip binary encryption check"
   )
   parser.add_argument(
     "--overwrite", action="store_true",
@@ -124,7 +128,7 @@ def main() -> None:
   )
 
   parser.add_argument(
-    "--version", action="version", version="cyan v1.4.5"
+    "--version", action="version", version="cyan v1.4.6"
   )
 
   from cyan import logic
