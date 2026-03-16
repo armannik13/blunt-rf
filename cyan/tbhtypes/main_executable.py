@@ -2,7 +2,7 @@ import os
 import sys
 import shutil
 import subprocess
-from typing import Optional, List
+from typing import Any, Callable, Optional, List
 
 try:
   import lief  # type: ignore
@@ -12,19 +12,90 @@ except Exception:
 from cyan import tbhutils
 from .executable import Executable
 
+# Type alias for the pending dict: maps target path -> lief binary object
+LiefPending = dict[str, Any]
+
+# Type alias for injection backend functions
+InjFunc = Callable[[str, Optional[str], Optional[LiefPending]], None]
+
+
 class MainExecutable(Executable):
   def __init__(self, path: str, bundle_path: str):
     super().__init__(path)
     self.bundle_path = bundle_path
 
-    self.inj: Optional = None  # type: ignore
-
+    self.inj_func: InjFunc
     if os.path.isfile(self.idylib):
       self.inj_func = self.idyl_inject
     else:
       self.inj_func = self.lief_inject
 
-  def inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_default_dependencies: bool = False) -> None:
+  # ------------------------------------------------------------------
+  # lief helpers — no instance state, purely local
+  # ------------------------------------------------------------------
+
+  def _lief_parse(self, target: str) -> Any:
+    try:
+      lief.logging.disable()  # type: ignore
+    except Exception:
+      sys.exit("[!] did you forget to install lief?")
+    binary: Any = lief.parse(target)  # type: ignore[no-untyped-call]
+    assert binary is not None, "[!] couldn't parse binary (lief), did you use a valid app?"
+    return binary # type: ignore
+
+  def _lief_add(self, pending: LiefPending, cmd: str, target: str) -> None:
+    """Add a weak LC to `target` via lief, batching writes in `pending`."""
+    if target not in pending:
+      pending[target] = self._lief_parse(target)
+    try:
+      pending[target].add(lief.MachO.DylibCommand.weak_lib(cmd))  # type: ignore
+    except AttributeError:
+      sys.exit("[!] couldn't add LC (lief), did you use a valid app?")
+
+  @staticmethod
+  def _flush_pending(pending: LiefPending) -> None:
+    """Write all batched lief binaries to disk and clear the dict."""
+    for target, binary in pending.items():
+      binary.write(target)  # type: ignore
+    pending.clear()
+
+  # ------------------------------------------------------------------
+  # injection backends
+  # ------------------------------------------------------------------
+
+  def lief_inject(self, cmd: str, target: Optional[str] = None, pending: Optional[LiefPending] = None) -> None:
+    """
+    lief backend. If `pending` is supplied, the write is deferred —
+    caller must call _flush_pending(pending) when done.
+    If omitted, a temporary dict is used and flushed immediately.
+    """
+    if target is None:
+      target = self.path
+    own_pending = pending is None
+    if own_pending:
+      pending = {}
+    self._lief_add(pending, cmd, target)
+    if own_pending:
+      self._flush_pending(pending)
+
+  def idyl_inject(self, cmd: str, target: Optional[str] = None, pending: Optional[LiefPending] = None) -> None:
+    """insert_dylib backend. `pending` is accepted but unused (writes in-place)."""
+    if target is None:
+      target = self.path
+    proc = subprocess.run(
+      [self.idylib, "--weak", "--inplace", "--all-yes", cmd, target],
+      capture_output=True, text=True
+    )
+    if proc.returncode != 0:
+      sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
+
+  def _inject(self, cmd: str, target: str, pending: LiefPending) -> None:
+    """Unified injection call that always passes `pending` through."""
+    self.inj_func(cmd, target, pending)
+
+  # ------------------------------------------------------------------
+
+  def inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_default_dependencies: bool = False, ignore_encrypted: bool = False) -> None:
     ENT_PATH = f"{self.bundle_path}/cyan.entitlements"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
@@ -50,29 +121,46 @@ class MainExecutable(Executable):
 
     # `extract_deb()` will modify `tweaks`, which is why we make a copy
     cwd = os.getcwd()
-    for bn, path in dict(tweaks).items():
-      if bn.endswith(".deb"):
-        tbhutils.extract_deb(path, tweaks, tmpdir)
-        continue
-    os.chdir(cwd)  # i fucking hate jailbroken iOS utils.
+    try:
+      for bn, path in dict(tweaks).items():
+        if bn.endswith(".deb"):
+          tbhutils.extract_deb(path, tweaks, tmpdir)
+    finally:
+      os.chdir(cwd)  # i fucking hate jailbroken iOS utils.
 
     needed: set[str] = set()
-    CUSTOM_INJECTIONS = {
+    CUSTOM_INJECTIONS: dict[str, dict[str, str]] = {
       "SwiftgramCrack.dylib": {
           "app_name": "Swiftgram",
           "target_binary": "Frameworks/TelegramUIFramework.framework/TelegramUIFramework"
       }
     }
+
+    # All lief writes are batched here — keyed by target path.
+    # insert_dylib writes in-place immediately, so it never touches this dict.
+    pending: LiefPending = {}
+
     # inject/fix user things
     for bn, path in tweaks.items():
       if os.path.islink(path):
-        continue  # symlinks can potentially have some security implications
+        print(f"[!] skipping symlink: {bn}")
+        continue
+
+      target_path: Optional[str] = None
+      ent_path: Optional[str] = None
+      binary_has_entitlements: Optional[bool] = None
 
       custom_rule = CUSTOM_INJECTIONS.get(bn)
-      if custom_path and custom_rule and f"Payload/{custom_rule["app_name"]}.app" in self.bundle_path:
-        target_path = f"{self.bundle_path}/{custom_rule["target_binary"]}"
-      else:
-        target_path = None
+      if custom_path and custom_rule and f"Payload/{custom_rule['app_name']}.app" in self.bundle_path:
+        target_path = f"{self.bundle_path}/{custom_rule['target_binary']}"
+        if self.is_encrypted(target_path) and ignore_encrypted:
+          print(f"[?] {os.path.basename(target_path)} encrypted, ignoring")
+        elif self.is_encrypted(target_path) and not ignore_encrypted:
+          print(f"[?] {os.path.basename(target_path)} encrypted, use ignore encrypted")
+          continue
+        ent_path = f"{os.path.dirname(target_path)}/cyan.entitlements"
+        binary_has_entitlements = self.write_entitlements(ent_path, target_path)
+        self.remove_signature(target_path)
 
       if bn.endswith(".appex"):
         fpath = f"{PLUGINS_DIR}/{bn}"
@@ -87,48 +175,61 @@ class MainExecutable(Executable):
         e.fix_dependencies(tweaks, inject_to_path)
 
         if inject_to_path:
-          # Inject directly into @executable_path hehehe
           fpath = f"{self.bundle_path}/{bn}"
           existed = tbhutils.delete_if_exists(fpath, bn)
           if target_path and os.path.exists(target_path):
-            self.inj_func(f"@executable_path/{bn}", target_path)
+            self._inject(tbhutils.get_relative_dylib_path(target_path, bn), target_path, pending)
+            if ent_path and binary_has_entitlements:
+              # must write before re-signing this specific target
+              if target_path in pending:
+                pending.pop(target_path).write(target_path)
+              self.sign_with_entitlements(ent_path, target_path)
             location = "@executable_path/ -> " + target_path.replace(self.bundle_path + "/", "")
           else:
-            self.inj_func(f"@executable_path/{bn}", target_path)
+            self._inject(f"@executable_path/{bn}", self.path, pending)
             location = "@executable_path/"
           shutil.move(path, fpath)
         else:
-          # Default zx behavior: inject into @executable_path/Frameworks
           fpath = f"{FRAMEWORKS_DIR}/{bn}"
           existed = tbhutils.delete_if_exists(fpath, bn)
           if target_path and os.path.exists(target_path):
-            self.inj_func(f"@rpath/{bn}", target_path)
+            self._inject(f"@rpath/{bn}", target_path, pending)
+            if ent_path and binary_has_entitlements:
+              if target_path in pending:
+                pending.pop(target_path).write(target_path)
+              self.sign_with_entitlements(ent_path, target_path)
             location = "Frameworks/ -> " + target_path.replace(self.bundle_path + "/", "")
           else:
-            self.inj_func(f"@rpath/{bn}", target_path)
+            self._inject(f"@rpath/{bn}", self.path, pending)
             location = "Frameworks/"
           shutil.move(path, fpath)
       elif bn.endswith(".framework"):
         if inject_to_path:
-          # With -p flag, frameworks also go to @executable_path
           fpath = f"{self.bundle_path}/{bn}"
           existed = tbhutils.delete_if_exists(fpath, bn)
           if target_path and os.path.exists(target_path):
-            self.inj_func(f"@executable_path/{bn}/{bn[:-10]}", target_path)
+            self._inject(tbhutils.get_relative_dylib_path(target_path, f"{bn}/{bn[:-10]}"), target_path, pending)
+            if ent_path and binary_has_entitlements:
+              if target_path in pending:
+                pending.pop(target_path).write(target_path)
+              self.sign_with_entitlements(ent_path, target_path)
             location = "@executable_path/ -> " + target_path.replace(self.bundle_path + "/", "")
           else:
-            self.inj_func(f"@executable_path/{bn}/{bn[:-10]}", target_path)
+            self._inject(f"@executable_path/{bn}/{bn[:-10]}", self.path, pending)
             location = "@executable_path/"
           shutil.copytree(path, fpath)
         else:
-          # Default zx behavior frameworks go to Frameworks/
           fpath = f"{FRAMEWORKS_DIR}/{bn}"
           existed = tbhutils.delete_if_exists(fpath, bn)
           if target_path and os.path.exists(target_path):
-            self.inj_func(f"@rpath/{bn}/{bn[:-10]}", target_path)
+            self._inject(f"@rpath/{bn}/{bn[:-10]}", target_path, pending)
+            if ent_path and binary_has_entitlements:
+              if target_path in pending:
+                pending.pop(target_path).write(target_path)
+              self.sign_with_entitlements(ent_path, target_path)
             location = "Frameworks/ -> " + target_path.replace(self.bundle_path + "/", "")
           else:
-            self.inj_func(f"@rpath/{bn}/{bn[:-10]}", target_path)
+            self._inject(f"@rpath/{bn}/{bn[:-10]}", self.path, pending)
             location = "Frameworks/"
           shutil.copytree(path, fpath)
       else:
@@ -155,14 +256,11 @@ class MainExecutable(Executable):
       ip = f"{FRAMEWORKS_DIR}/{real}"
       existed = tbhutils.delete_if_exists(ip, real)
       shutil.copytree(f"{self.install_dir}/extras/{real}", ip)
-
       if not existed:
         print(f"[*] auto-injected {real}")
 
-    # FINALLY !!
-    if self.inj is not None:  # type: ignore
-      self.inj.write(self.path)  # type: ignore
-      self.inj = None  # type: ignore
+    # Flush all remaining lief writes (main executable and any un-signed targets)
+    self._flush_pending(pending)
 
     if has_entitlements:
       self.sign_with_entitlements(ENT_PATH)
@@ -174,10 +272,11 @@ class MainExecutable(Executable):
 
     if self.is_encrypted(target_binary) and ignore_encrypted:
       print(f"[?] {target_name} encrypted, ignoring")
+      return
     elif self.is_encrypted(target_binary) and not ignore_encrypted:
       print(f"[?] {target_name} encrypted, use ignore encrypted")
       return
-      
+
     dylibs = {k: v for k, v in tweaks.items() if k.endswith(".dylib")}
     if not dylibs:
       return
@@ -185,47 +284,42 @@ class MainExecutable(Executable):
     ent_path = f"{target}/cyan.entitlements"
     has_entitlements = self.write_entitlements(ent_path, target_binary)
     self.remove_signature(target_binary)
-    
-    if inject_to_path:
-      location = "@executable_path/"
-    else:
-      location = "Frameworks/"
-    
-    for dylib, _ in dylibs.items():
-      if inject_to_path:
-        dylib_path = f"{self.bundle_path}/{dylib}"
-      else:
-        dylib_path = f"{self.bundle_path}/Frameworks/{dylib}"
-      
+
+    location = "@executable_path/" if inject_to_path else "Frameworks/"
+
+    pending: LiefPending = {}
+    for dylib in dylibs:
+      dylib_path = (
+        f"{self.bundle_path}/{dylib}"
+        if inject_to_path
+        else f"{self.bundle_path}/Frameworks/{dylib}"
+      )
+
       if not os.path.exists(dylib_path):
         print(f"[?] {dylib} not found")
         continue
 
-      if inject_to_path:
-        self.inj_func(f"@executable_path/../../{dylib}", target_binary)
-      else:
-        self.inj_func(f"@rpath/{dylib}", target_binary)
+      lc = f"@executable_path/../../{dylib}" if inject_to_path else f"@rpath/{dylib}"
+      self._inject(lc, target_binary, pending)
 
-      if self.inj is not None: # type: ignore
-        self.inj.write(target_binary) # type: ignore
-        self.inj = None
+    self._flush_pending(pending)
 
-      if has_entitlements:
-        self.sign_with_entitlements(ent_path, target_binary)
+    if has_entitlements:
+      self.sign_with_entitlements(ent_path, target_binary)
 
-      print(f"[*] injected into {target_name} -> {location}")
+    print(f"[*] injected into {target_name} -> {location}")
 
   def write_entitlements(self, output: str, target: Optional[str] = None) -> bool:
-    if target == None:
+    if target is None:
       target = self.path
+    proc = subprocess.run(
+      [self.ldid, "-e", target],
+      capture_output=True
+    )
+    if proc.returncode != 0:
+      return False
     with open(output, "wb") as entf:
-      proc = subprocess.run(
-        [self.ldid, "-e", target],
-        capture_output=True
-      )
-
       entf.write(proc.stdout)
-
     return os.path.getsize(output) > 0
 
   def merge_entitlements(self, entitlements: str) -> None:
@@ -244,37 +338,6 @@ class MainExecutable(Executable):
       target
     ]).returncode == 0
 
-  def lief_inject(self, cmd: str, target: Optional[str] = None) -> None:
-    if target is None:
-      target = self.path
-
-    if self.inj is None:  # type: ignore
-      try:
-        lief.logging.disable()  # type: ignore
-      except Exception:
-        sys.exit("[!] did you forget to install lief?")
-
-      self.inj = lief.parse(target)  # type: ignore
-
-    try:
-      self.inj.add(lief.MachO.DylibCommand.weak_lib(cmd))  # type: ignore
-    except AttributeError:
-      sys.exit("[!] couldn't add LC (lief), did you use a valid app?")
-
-  def idyl_inject(self, cmd: str, target: Optional[str] = None) -> None:
-    if target is None:
-      target = self.path
-
-    proc = subprocess.run(
-      [
-        self.idylib, "--weak", "--inplace", "--all-yes",
-        cmd, target
-      ], capture_output=True, text=True
-    )
-
-    if proc.returncode != 0:
-      sys.exit(f"[!] couldn't add LC (insert_dylib), error:\n{proc.stderr}")
-
   def patch_plugins(self, tmpdir: str, inject_to_path: bool = False, dylib: Optional[str] = None, tweaks: Optional[dict[str, str]] = None, ignore_encrypted: bool = False, inject_all: bool = False) -> None:
     tweaks_dict: dict[str, str] = tweaks if tweaks is not None else {}
     ENT_PATH = f"{self.bundle_path}/cyan.entitlements"
@@ -287,12 +350,11 @@ class MainExecutable(Executable):
         [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
         stderr=subprocess.DEVNULL
       )
-    if dylib is None:
-      dylib_source = f"{self.install_dir}/extras/zxPluginsInject.dylib"
-    else:
-      dylib_source = dylib
+
+    dylib_source = dylib if dylib is not None else f"{self.install_dir}/extras/zxPluginsInject.dylib"
     dylib_name = os.path.basename(dylib_source)
     path = shutil.copy2(dylib_source, tmpdir)
+
     if inject_to_path:
       location = f"@executable_path/../../{dylib_name}"
       old_location = f"@rpath/{dylib_name}"
@@ -303,11 +365,12 @@ class MainExecutable(Executable):
       old_location = f"@executable_path/../../{dylib_name}"
       fpath = os.path.join(FRAMEWORKS_DIR, dylib_name)
       old_fpath = os.path.join(self.bundle_path, dylib_name)
+
     shutil.move(path, fpath)
 
-    targets = [self.path]
+    targets: list[str] = [self.path]
     need_repatch: List[str] = []
-    
+
     if os.path.isdir(PLUGINS_DIR):
       for item in os.listdir(PLUGINS_DIR):
         if item.endswith(".appex"):
@@ -325,62 +388,51 @@ class MainExecutable(Executable):
       elif self.is_encrypted(target) and not ignore_encrypted:
         print(f"[?] {os.path.basename(target)} encrypted, use ignore encrypted")
         continue
-      if target != self.path:
-        ent_path = f"{os.path.dirname(target)}/cyan.entitlements"
-      else:
-        ent_path = ENT_PATH
+
+      ent_path = ENT_PATH if target == self.path else f"{os.path.dirname(target)}/cyan.entitlements"
       has_entitlements = self.write_entitlements(ent_path, target)
       a = self.is_dylib_already_injected(target, old_location)
       b = self.is_dylib_already_injected(target, location)
+
       if not b:
+        self.remove_signature(target)
         if a and a in need_repatch:
-          self.remove_signature(target)
           self.change_dependency(old_location, location, target)
-          if has_entitlements:
-            self.sign_with_entitlements(ent_path, target)
-          count += 1
           if os.path.isfile(old_fpath):
             os.remove(old_fpath)
         else:
-          self.remove_signature(target)
-          self.inj_func(location, target)
-          if self.inj is not None:  # type: ignore
-            self.inj.write(target)  # type: ignore
-            self.inj = None  # type: ignore
-          if has_entitlements:
-            self.sign_with_entitlements(ent_path, target)
-          count += 1
+          pending: LiefPending = {}
+          self._inject(location, target, pending)
+          self._flush_pending(pending)
+        if has_entitlements:
+          self.sign_with_entitlements(ent_path, target)
+        count += 1
       else:
-        if (dylib_name in tweaks_dict and (target == self.path or inject_all)):
+        if dylib_name in tweaks_dict and (target == self.path or inject_all):
           count += 1
         else:
           print(f"[?] {os.path.basename(target)} already patched")
+
     if count > 0:
       print(f"[*] patched \033[96m{count}\033[0m item(s) with {dylib_name}")
-      
+
   def init_inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_default_dependencies: bool = False, ignore_encrypted: bool = False, inject_all: bool = False) -> None:
-    self.inject(tweaks, tmpdir, inject_to_path, custom_path, no_default_dependencies)
-    
+    self.inject(tweaks, tmpdir, inject_to_path, custom_path, no_default_dependencies, ignore_encrypted)
+
     if not inject_all:
       return
-    
+
     extensions: List[str] = []
-    plugins_dir = f"{self.bundle_path}/PlugIns"
-    if os.path.exists(plugins_dir):
-      for item in os.listdir(plugins_dir):
-        if item.endswith(".appex"):
-          extensions.append(os.path.join(plugins_dir, item))
-    
-    extensions_dir = f"{self.bundle_path}/Extensions"
-    if os.path.exists(extensions_dir):
-      for item in os.listdir(extensions_dir):
-        if item.endswith(".appex"):
-          extensions.append(os.path.join(extensions_dir, item))
-    
+    for subdir in ("PlugIns", "Extensions"):
+      d = f"{self.bundle_path}/{subdir}"
+      if os.path.exists(d):
+        for item in os.listdir(d):
+          if item.endswith(".appex"):
+            extensions.append(os.path.join(d, item))
+
     if not extensions:
       print("[?] no app extensions found for -a")
       return
-    
+
     for extension in extensions:
       self.inject_into_extension(extension, tweaks, inject_to_path, no_default_dependencies, ignore_encrypted)
-

@@ -211,6 +211,28 @@ def extract_deb(deb: str, tweaks: dict[str, str], tmpdir: str) -> None:
   print(f"[*] extracted {os.path.basename(deb)}")
   del tweaks[os.path.basename(deb)]
 
+def get_relative_dylib_path(full_framework_path: str, dylib_name: str) -> str:
+  parts = full_framework_path.split('/')
+  
+  app_index = -1
+  for i, part in enumerate(parts):
+    if part.endswith('.app'):
+      app_index = i
+      break
+    
+  if app_index == -1:
+    return f"@executable_path/{dylib_name}"
+    
+  levels_after_app = len(parts) - (app_index + 1)
+    
+  relative_levels = levels_after_app - 1
+    
+  if relative_levels < 0:
+      relative_levels = 0
+    
+  up_dirs = "../" * relative_levels
+    
+  return f"@executable_path/{up_dirs}{dylib_name}"
 
 def make_ipa(tmpdir: str, output: str, level: int) -> None:
   # ensure names are written as Payload/...
