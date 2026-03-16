@@ -272,7 +272,6 @@ class MainExecutable(Executable):
 
     if self.is_encrypted(target_binary) and ignore_encrypted:
       print(f"[?] {target_name} encrypted, ignoring")
-      return
     elif self.is_encrypted(target_binary) and not ignore_encrypted:
       print(f"[?] {target_name} encrypted, use ignore encrypted")
       return
