@@ -266,7 +266,7 @@ class MainExecutable(Executable):
       self.sign_with_entitlements(ENT_PATH)
       print("[*] restored entitlements")
 
-  def inject_into_extension(self, target: str, tweaks: dict[str, str], inject_to_path: bool = False, no_default_dependencies: bool = False, ignore_encrypted: bool = False) -> None:
+  def inject_into_extension(self, target: str, tweaks: dict[str, str], inject_to_path: bool = False, ignore_encrypted: bool = False) -> None:
     target_name = os.path.basename(target)
     target_binary = f"{target}/{target_name[:-6]}"
 
@@ -400,9 +400,7 @@ class MainExecutable(Executable):
           if os.path.isfile(old_fpath):
             os.remove(old_fpath)
         else:
-          pending: LiefPending = {}
-          self._inject(location, target, pending)
-          self._flush_pending(pending)
+          self.inj_func(location, target, None) 
         if has_entitlements:
           self.sign_with_entitlements(ent_path, target)
         count += 1
@@ -434,4 +432,4 @@ class MainExecutable(Executable):
       return
 
     for extension in extensions:
-      self.inject_into_extension(extension, tweaks, inject_to_path, no_default_dependencies, ignore_encrypted)
+      self.inject_into_extension(extension, tweaks, inject_to_path, ignore_encrypted)
