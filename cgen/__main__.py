@@ -106,7 +106,11 @@ def main() -> None:
   parser.add_argument(
     "--ignore-encrypted", action="store_true",
     help="skip binary encryption check"
-  ) 
+  )
+  parser.add_argument(
+    "--overwrite", action="store_true",
+    help="overwrite existing files without confirming"
+  )
 
   generate_cyan(parser)
 
@@ -135,7 +139,7 @@ def generate_cyan(parser: argparse.ArgumentParser) -> None:
   if not args.output.endswith(".cyan"):
     print("[*] appended cyan file extension to output")
     args.output += ".cyan"
-  if os.path.isfile(args.output):
+  if os.path.isfile(args.output) and not args.overwrite:
     try:
       overwrite = input(
         f"[<] {args.output} already exists. overwrite? [Y/n] "
