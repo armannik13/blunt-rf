@@ -6,12 +6,26 @@ from cyan import tbhutils
 
 
 class Executable:
-  install_dir, specific = tbhutils.get_tools_dir()
-  nt = f"{specific}/install_name_tool"
-  ldid = f"{specific}/ldid"
-  lipo = f"{specific}/lipo"
-  otool = f"{specific}/otool"
-  idylib = f"{specific}/insert_dylib"
+  _tools_initialized = False
+  install_dir = ""
+  specific = ""
+  nt = ""
+  ldid = ""
+  lipo = ""
+  otool = ""
+  idylib = ""
+
+  @classmethod
+  def _init_tools(cls) -> None:
+    if cls._tools_initialized:
+      return
+    cls.install_dir, cls.specific = tbhutils.get_tools_dir()
+    cls.nt = f"{cls.specific}/install_name_tool"
+    cls.ldid = f"{cls.specific}/ldid"
+    cls.lipo = f"{cls.specific}/lipo"
+    cls.otool = f"{cls.specific}/otool"
+    cls.idylib = f"{cls.specific}/insert_dylib"
+    cls._tools_initialized = True
 
   # adding /usr/lib/ now, idk why i didnt before. lets hope nothing breaks
   ## LITERALLY 2 DAYS LATER. WHAT THE FUCK IS @LOADER_PATH HELP
@@ -45,6 +59,8 @@ class Executable:
   }
 
   def __init__(self, path: str):
+    self._init_tools()
+
     if not os.path.isfile(path):
       print(f"[!] {path} does not exist (executable)", file=sys.stderr)
       sys.exit(
@@ -152,5 +168,5 @@ class Executable:
         capture_output=True, text=True, check=True
       )
       return dylib_name if dylib_name in result.stdout else None
-    except:
+    except Exception:
       return None

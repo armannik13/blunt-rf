@@ -60,12 +60,12 @@ def validate_inputs(args: Namespace) -> Optional[str]:
   
   if args.custom_dylib is not None:
     if isinstance(args.custom_dylib, str):
-      for dylib in [args.custom_dylib]:
-        if dylib[-1] == "/":  # yeah this is stupid
-          dylib = dylib[:-1]
+      dylib = args.custom_dylib
+      if dylib[-1] == "/":
+        dylib = dylib[:-1]
 
-        if not os.path.isfile(dylib):
-          sys.exit(f"[!] {dylib} does not exist")
+      if not os.path.isfile(dylib):
+        sys.exit(f"[!] {dylib} does not exist")
 
   if (
       args.m is not None
@@ -213,25 +213,23 @@ def extract_deb(deb: str, tweaks: dict[str, str], tmpdir: str) -> None:
 
 def get_relative_dylib_path(full_framework_path: str, dylib_name: str) -> str:
   parts = full_framework_path.split('/')
-  
+
   app_index = -1
   for i, part in enumerate(parts):
     if part.endswith('.app'):
       app_index = i
       break
-    
+
   if app_index == -1:
     return f"@executable_path/{dylib_name}"
-    
+
   levels_after_app = len(parts) - (app_index + 1)
-    
   relative_levels = levels_after_app - 1
-    
+
   if relative_levels < 0:
-      relative_levels = 0
-    
+    relative_levels = 0
+
   up_dirs = "../" * relative_levels
-    
   return f"@executable_path/{up_dirs}{dylib_name}"
 
 def make_ipa(tmpdir: str, output: str, level: int) -> None:
@@ -297,8 +295,7 @@ def parse_cyans(args: dict[str, Any], tmpdir: str) -> None:
       if "custom_dylib" in config:
         NAME = [n for n in zf.namelist() if n.startswith("custom_dylib/")]
         zf.extractall(DOT_PATH, NAME)
-        
-        args["custom_dylib"] = args["custom_dylib"] if args["custom_dylib"] is not None else {}
+
         for e in os.scandir(f"{DOT_PATH}/custom_dylib"):
           args["custom_dylib"] = zf.extract(f"custom_dylib/{e.name}", DOT_PATH)
         del config["custom_dylib"]

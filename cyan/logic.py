@@ -85,7 +85,7 @@ def main(parser: ArgumentParser) -> None:
       app.thin_all()
 
     # create subdirectories if necessary
-    if "/" in args.o:
+    if os.path.dirname(args.o):
       os.makedirs(os.path.dirname(args.o), exist_ok=True)
 
     # done !
