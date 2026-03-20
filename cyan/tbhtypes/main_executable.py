@@ -95,11 +95,12 @@ class MainExecutable(Executable):
 
   # ------------------------------------------------------------------
 
-  def inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_default_dependencies: bool = False, ignore_encrypted: bool = False) -> None:
+  def inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_default_dependencies: bool = False, ignore_encrypted: bool = False, inject_all: bool = False) -> None:
     ENT_PATH = f"{self.bundle_path}/cyan.entitlements"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     has_entitlements = self.write_entitlements(ENT_PATH)
+    itp = inject_to_path and not inject_all
 
     # iirc, injecting doesnt work (sometimes) if the file is signed
     self.remove_signature()
@@ -111,13 +112,14 @@ class MainExecutable(Executable):
         t.endswith(k)
         for t in tweaks
         for k in (".deb", ".dylib", ".framework")
-    ) and not inject_to_path:
-      os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
+    ):
       # some apps really dont have this lol
-      subprocess.run(
-        [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
-        stderr=subprocess.DEVNULL
-      )
+      if "@executable_path/Frameworks" not in self.get_rpaths():
+        os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
+        subprocess.run(
+          [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
+          stderr=subprocess.DEVNULL
+        )
 
     # `extract_deb()` will modify `tweaks`, which is why we make a copy
     cwd = os.getcwd()
@@ -172,9 +174,9 @@ class MainExecutable(Executable):
 
         e = Executable(path)
         e.fix_common_dependencies(needed, no_default_dependencies)
-        e.fix_dependencies(tweaks, inject_to_path)
+        e.fix_dependencies(tweaks, itp)
 
-        if inject_to_path:
+        if itp:
           fpath = f"{self.bundle_path}/{bn}"
           existed = tbhutils.delete_if_exists(fpath, bn)
           if target_path and os.path.exists(target_path):
@@ -204,7 +206,7 @@ class MainExecutable(Executable):
             location = "Frameworks/"
           shutil.move(path, fpath)
       elif bn.endswith(".framework"):
-        if inject_to_path:
+        if itp:
           fpath = f"{self.bundle_path}/{bn}"
           existed = tbhutils.delete_if_exists(fpath, bn)
           if target_path and os.path.exists(target_path):
@@ -266,7 +268,7 @@ class MainExecutable(Executable):
       self.sign_with_entitlements(ENT_PATH)
       print("[*] restored entitlements")
 
-  def inject_into_extension(self, target: str, tweaks: dict[str, str], inject_to_path: bool = False, ignore_encrypted: bool = False) -> None:
+  def inject_into_extension(self, target: str, tweaks: dict[str, str], ignore_encrypted: bool = False) -> None:
     target_name = os.path.basename(target)
     target_binary = f"{target}/{target_name[:-6]}"
 
@@ -284,29 +286,16 @@ class MainExecutable(Executable):
     has_entitlements = self.write_entitlements(ent_path, target_binary)
     self.remove_signature(target_binary)
 
-    location = "@executable_path/" if inject_to_path else "Frameworks/"
-
     pending: LiefPending = {}
     for dylib in dylibs:
-      dylib_path = (
-        f"{self.bundle_path}/{dylib}"
-        if inject_to_path
-        else f"{self.bundle_path}/Frameworks/{dylib}"
-      )
-
-      if not os.path.exists(dylib_path):
-        print(f"[?] {dylib} not found")
-        continue
-
-      lc = f"@executable_path/../../{dylib}" if inject_to_path else f"@rpath/{dylib}"
-      self._inject(lc, target_binary, pending)
+      self._inject(f"@rpath/{dylib}", target_binary, pending)
 
     self._flush_pending(pending)
 
     if has_entitlements:
       self.sign_with_entitlements(ent_path, target_binary)
 
-    print(f"[*] injected into {target_name} -> {location}")
+    print(f"[*] injected into {target_name}")
 
   def write_entitlements(self, output: str, target: Optional[str] = None) -> bool:
     if target is None:
@@ -337,14 +326,13 @@ class MainExecutable(Executable):
       target
     ]).returncode == 0
 
-  def patch_plugins(self, tmpdir: str, inject_to_path: bool = False, dylib: Optional[str] = None, tweaks: Optional[dict[str, str]] = None, ignore_encrypted: bool = False, inject_all: bool = False) -> None:
+  def patch_plugins(self, tmpdir: str, dylib: Optional[str] = None, tweaks: Optional[dict[str, str]] = None, ignore_encrypted: bool = False, inject_all: bool = False) -> None:
     tweaks_dict: dict[str, str] = tweaks if tweaks is not None else {}
     ENT_PATH = f"{self.bundle_path}/cyan.entitlements"
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    if not inject_to_path:
+    if "@executable_path/Frameworks" not in self.get_rpaths():
       os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
-    if tweaks is None and not inject_to_path:
       subprocess.run(
         [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
         stderr=subprocess.DEVNULL
@@ -354,21 +342,11 @@ class MainExecutable(Executable):
     dylib_name = os.path.basename(dylib_source)
     path = shutil.copy2(dylib_source, tmpdir)
 
-    if inject_to_path:
-      location = f"@executable_path/../../{dylib_name}"
-      old_location = f"@rpath/{dylib_name}"
-      fpath = os.path.join(self.bundle_path, dylib_name)
-      old_fpath = os.path.join(FRAMEWORKS_DIR, dylib_name)
-    else:
-      location = f"@rpath/{dylib_name}"
-      old_location = f"@executable_path/../../{dylib_name}"
-      fpath = os.path.join(FRAMEWORKS_DIR, dylib_name)
-      old_fpath = os.path.join(self.bundle_path, dylib_name)
-
+    # zxPluginsInject MUST go to Frameworks/ to avoid iOS Extension Sandbox violations
+    fpath = os.path.join(FRAMEWORKS_DIR, dylib_name)
     shutil.move(path, fpath)
 
     targets: list[str] = [self.path]
-    need_repatch: List[str] = []
 
     if os.path.isdir(PLUGINS_DIR):
       for item in os.listdir(PLUGINS_DIR):
@@ -376,9 +354,6 @@ class MainExecutable(Executable):
           binary_path = os.path.join(PLUGINS_DIR, item, item[:-6])
           if os.path.isfile(binary_path):
             targets.append(binary_path)
-            injected_dylib = self.is_dylib_already_injected(binary_path, old_location)
-            if injected_dylib is not None:
-              need_repatch.append(injected_dylib)
 
     count = 0
     for target in targets:
@@ -388,19 +363,11 @@ class MainExecutable(Executable):
         print(f"[?] {os.path.basename(target)} encrypted, use ignore encrypted")
         continue
 
-      ent_path = ENT_PATH if target == self.path else f"{os.path.dirname(target)}/cyan.entitlements"
-      has_entitlements = self.write_entitlements(ent_path, target)
-      a = self.is_dylib_already_injected(target, old_location)
-      b = self.is_dylib_already_injected(target, location)
-
-      if not b:
+      if not self.is_dylib_already_injected(target, f"@rpath/{dylib_name}"):
+        ent_path = ENT_PATH if target == self.path else f"{os.path.dirname(target)}/cyan.entitlements"
+        has_entitlements = self.write_entitlements(ent_path, target)
         self.remove_signature(target)
-        if a and a in need_repatch:
-          self.change_dependency(old_location, location, target)
-          if os.path.isfile(old_fpath):
-            os.remove(old_fpath)
-        else:
-          self.inj_func(location, target, None) 
+        self.inj_func(f"@rpath/{dylib_name}", target, None)
         if has_entitlements:
           self.sign_with_entitlements(ent_path, target)
         count += 1
@@ -414,7 +381,7 @@ class MainExecutable(Executable):
       print(f"[*] patched \033[96m{count}\033[0m item(s) with {dylib_name}")
 
   def init_inject(self, tweaks: dict[str, str], tmpdir: str, inject_to_path: bool = False, custom_path: bool = False, no_default_dependencies: bool = False, ignore_encrypted: bool = False, inject_all: bool = False) -> None:
-    self.inject(tweaks, tmpdir, inject_to_path, custom_path, no_default_dependencies, ignore_encrypted)
+    self.inject(tweaks, tmpdir, inject_to_path, custom_path, no_default_dependencies, ignore_encrypted, inject_all)
 
     if not inject_all:
       return
@@ -432,4 +399,4 @@ class MainExecutable(Executable):
       return
 
     for extension in extensions:
-      self.inject_into_extension(extension, tweaks, inject_to_path, ignore_encrypted)
+      self.inject_into_extension(extension, tweaks, ignore_encrypted)
