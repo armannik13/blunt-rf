@@ -149,6 +149,8 @@ def generate_cyan(parser: argparse.ArgumentParser) -> None:
 
     if overwrite not in ("y", "yes", ""):
       sys.exit("[>] quitting.")
+  elif os.path.isfile(args.output) and args.overwrite:
+    print(f"[*] {args.output} already exists; overwriting")
 
   real_args = {k: v for k, v in dict(vars(args)).items() if v}
   del real_args["output"]
