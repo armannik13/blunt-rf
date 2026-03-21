@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import subprocess
 from typing import Optional
@@ -160,7 +161,23 @@ class Executable:
         deps.append(dep.split()[0])  # split() removes whitespace
 
     return deps
-  
+
+  def get_rpaths(self) -> list[str]:
+    proc = subprocess.run(
+      [self.otool, "-l", self.path],
+      capture_output=True, text=True
+    )
+
+    if proc.returncode != 0:
+      return []
+
+    blocks = re.findall(
+      r"cmd LC_RPATH.+?path (.+?) \(offset",
+      proc.stdout,
+      re.DOTALL
+    )
+    return [b.strip() for b in blocks]
+
   def is_dylib_already_injected(self, binary_path: str, dylib_name: str) -> Optional[str]:
     try:
       result = subprocess.run(

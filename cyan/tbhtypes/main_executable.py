@@ -111,13 +111,14 @@ class MainExecutable(Executable):
         t.endswith(k)
         for t in tweaks
         for k in (".deb", ".dylib", ".framework")
-    ) and not inject_to_path:
-      os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
+    ):
       # some apps really dont have this lol
-      subprocess.run(
-        [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
-        stderr=subprocess.DEVNULL
-      )
+      if "@executable_path/Frameworks" not in self.get_rpaths():
+        os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
+        subprocess.run(
+          [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
+          stderr=subprocess.DEVNULL
+        )
 
     # `extract_deb()` will modify `tweaks`, which is why we make a copy
     cwd = os.getcwd()
@@ -342,9 +343,8 @@ class MainExecutable(Executable):
     ENT_PATH = f"{self.bundle_path}/cyan.entitlements"
     FRAMEWORKS_DIR = f"{self.bundle_path}/Frameworks"
     PLUGINS_DIR = f"{self.bundle_path}/PlugIns"
-    if not inject_to_path:
+    if "@executable_path/Frameworks" not in self.get_rpaths():
       os.makedirs(FRAMEWORKS_DIR, exist_ok=True)
-    if tweaks is None and not inject_to_path:
       subprocess.run(
         [self.nt, "-add_rpath", "@executable_path/Frameworks", self.path],
         stderr=subprocess.DEVNULL
@@ -355,20 +355,16 @@ class MainExecutable(Executable):
     path = shutil.copy2(dylib_source, tmpdir)
 
     if inject_to_path:
-      location = f"@executable_path/../../{dylib_name}"
-      old_location = f"@rpath/{dylib_name}"
       fpath = os.path.join(self.bundle_path, dylib_name)
       old_fpath = os.path.join(FRAMEWORKS_DIR, dylib_name)
     else:
-      location = f"@rpath/{dylib_name}"
-      old_location = f"@executable_path/../../{dylib_name}"
       fpath = os.path.join(FRAMEWORKS_DIR, dylib_name)
       old_fpath = os.path.join(self.bundle_path, dylib_name)
 
     shutil.move(path, fpath)
 
     targets: list[str] = [self.path]
-    need_repatch: List[str] = []
+    need_repatch: set[str] = set()
 
     if os.path.isdir(PLUGINS_DIR):
       for item in os.listdir(PLUGINS_DIR):
@@ -376,9 +372,13 @@ class MainExecutable(Executable):
           binary_path = os.path.join(PLUGINS_DIR, item, item[:-6])
           if os.path.isfile(binary_path):
             targets.append(binary_path)
-            injected_dylib = self.is_dylib_already_injected(binary_path, old_location)
-            if injected_dylib is not None:
-              need_repatch.append(injected_dylib)
+            plugin_old = f"@rpath/{dylib_name}" if inject_to_path else f"@executable_path/../../{dylib_name}"
+            if self.is_dylib_already_injected(binary_path, plugin_old) is not None:
+              need_repatch.add(binary_path)
+
+    main_old = f"@rpath/{dylib_name}" if inject_to_path else f"@executable_path/{dylib_name}"
+    if self.is_dylib_already_injected(self.path, main_old) is not None:
+      need_repatch.add(self.path)
 
     count = 0
     for target in targets:
@@ -387,15 +387,20 @@ class MainExecutable(Executable):
       elif self.is_encrypted(target) and not ignore_encrypted:
         print(f"[?] {os.path.basename(target)} encrypted, use ignore encrypted")
         continue
+      
+      is_main = (target == self.path)
+      if inject_to_path:
+        location = f"@executable_path/{dylib_name}" if is_main else f"@executable_path/../../{dylib_name}"
+        old_location = f"@rpath/{dylib_name}"
+      else:
+        location = f"@rpath/{dylib_name}"
+        old_location = f"@executable_path/{dylib_name}" if is_main else f"@executable_path/../../{dylib_name}"
 
-      ent_path = ENT_PATH if target == self.path else f"{os.path.dirname(target)}/cyan.entitlements"
-      has_entitlements = self.write_entitlements(ent_path, target)
-      a = self.is_dylib_already_injected(target, old_location)
-      b = self.is_dylib_already_injected(target, location)
-
-      if not b:
+      if not self.is_dylib_already_injected(target, location):
+        ent_path = ENT_PATH if is_main else f"{os.path.dirname(target)}/cyan.entitlements"
+        has_entitlements = self.write_entitlements(ent_path, target)
         self.remove_signature(target)
-        if a and a in need_repatch:
+        if target in need_repatch:
           self.change_dependency(old_location, location, target)
           if os.path.isfile(old_fpath):
             os.remove(old_fpath)
@@ -405,7 +410,7 @@ class MainExecutable(Executable):
           self.sign_with_entitlements(ent_path, target)
         count += 1
       else:
-        if dylib_name in tweaks_dict and (target == self.path or inject_all):
+        if dylib_name in tweaks_dict and (is_main or inject_all):
           count += 1
         else:
           print(f"[?] {os.path.basename(target)} already patched")
