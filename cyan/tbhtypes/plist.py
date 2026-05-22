@@ -1,7 +1,11 @@
+import re
 import sys
 import plistlib
 from glob import glob
 from typing import Optional, Any
+
+_DOCTYPE = re.compile(rb"<!DOCTYPE[^>]*>")
+
 
 class Plist:
   def __init__(
@@ -9,12 +13,17 @@ class Plist:
   ):
     try:
       with open(path, "rb") as f:
-        self.data: dict[str, Any] = plistlib.load(f)
+        data = f.read()
+
+      try:
+        self.data: dict[str, Any] = plistlib.loads(data)
+      except Exception:
+        self.data = plistlib.loads(_DOCTYPE.sub(b"", data))
 
       self.success = True
-    except Exception:
+    except Exception as e:
       if throw:
-        sys.exit(f"[!] couldn't read {path}")
+        sys.exit(f"[!] couldn't read {path}: {e}")
 
       self.success = False
 
